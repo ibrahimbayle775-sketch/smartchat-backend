@@ -14,10 +14,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # Your Anthropic API key - REPLACE WITH YOUR REAL KEY!
-ANTHROPIC_API_KEY = "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"
 
 # Create the AI client
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = anthropic.AnthrANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')opic(api_key=ANTHROPIC_API_KEY)
 
 # Database Models
 class Message(db.Model):
