@@ -16,8 +16,8 @@ db = SQLAlchemy(app)
 # Your Anthropic API key - REPLACE WITH YOUR REAL KEY!
 
 # Create the AI client
-client = anthropic.AnthrANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')opic(api_key=ANTHROPIC_API_KEY)
-
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 # Database Models
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
