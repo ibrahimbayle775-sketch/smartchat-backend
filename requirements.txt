@@ -2,6 +2,6 @@ flask
 flask-cors
 flask-sqlalchemy
 flask-bcrypt
-flask-login
 anthropic
 gunicorn
+pyjwt
