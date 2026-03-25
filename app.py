@@ -7,7 +7,9 @@ import anthropic
 import os
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-this'  # Change this!
+app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'
+
+# CORS - Allow your frontend domains
 CORS(app, supports_credentials=True, origins=[
     'http://localhost:3000',
     'https://smart-chat-frontend-beta.vercel.app',
@@ -24,7 +26,8 @@ bcrypt = Bcrypt(app)
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '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')
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# User Model
+# ============ DATABASE MODELS ============
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -39,7 +42,6 @@ class User(db.Model):
             'email': self.email
         }
 
-# Message Model
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -64,7 +66,8 @@ with app.app_context():
     db.create_all()
     print("✅ Database created!")
 
-# Save message to database
+# ============ HELPER FUNCTIONS ============
+
 def save_message(user_id, conversation_id, sender, text, tone=None):
     message = Message(
         user_id=user_id,
@@ -77,7 +80,6 @@ def save_message(user_id, conversation_id, sender, text, tone=None):
     db.session.commit()
     return message
 
-# Get messages from database
 def get_messages(user_id, conversation_id):
     messages = Message.query.filter_by(user_id=user_id, conversation_id=conversation_id).order_by(Message.timestamp).all()
     return [msg.to_dict() for msg in messages]
@@ -214,12 +216,14 @@ def load_messages_endpoint(conversation_id):
         print(f"❌ Error loading messages: {error}")
         return jsonify({"error": str(error)}), 500
 
-# Health check
+# ============ HEALTH CHECK ============
+
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({"status": "healthy", "message": "I'm alive! 🎉"})
 
-# Start the server
+# ============ START SERVER ============
+
 if __name__ == '__main__':
     print("\n" + "="*50)
     print("🚀 SMARTCHAT BACKEND STARTING (with User Accounts!)")
