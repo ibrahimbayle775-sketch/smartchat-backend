@@ -1,25 +1,26 @@
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from datetime import datetime
+from datetime import datetime, timedelta
+import jwt
 import anthropic
 import os
+from functools import wraps
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messages.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# CORS - Allow all your frontend domains
+# CORS - Allow your frontend domains
 CORS(app, supports_credentials=True, origins=[
     'http://localhost:3000',
     'http://localhost:3001',
     'https://smart-chat-frontend-rho.vercel.app',
     'https://smart-chat-frontend-beta.vercel.app',
     'https://smart-chat-frontend.vercel.app',
-    'https://smart-chat-frontend-xi.vercel.app',
-    'https://smart-chat-frontend-git-main.vercel.app'
+    'https://smart-chat-frontend-xi.vercel.app'
 ])
 
 db = SQLAlchemy(app)
@@ -69,6 +70,34 @@ with app.app_context():
     db.create_all()
     print("✅ Database created!")
 
+# ============ JWT HELPER ============
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        try:
+            # Remove 'Bearer ' prefix if present
+            if token.startswith('Bearer '):
+                token = token.split(' ')[1]
+            
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            current_user = User.query.get(data['user_id'])
+            if not current_user:
+                return jsonify({'error': 'User not found'}), 401
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
+
 # ============ HELPER FUNCTIONS ============
 
 def save_message(user_id, conversation_id, sender, text, tone=None):
@@ -110,10 +139,17 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         
-        # Store user in session
-        session['user_id'] = new_user.id
+        # Create JWT token
+        token = jwt.encode({
+            'user_id': new_user.id,
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, app.config['SECRET_KEY'], algorithm='HS256')
         
-        return jsonify({'user': new_user.to_dict(), 'message': 'Registration successful'}), 201
+        return jsonify({
+            'user': new_user.to_dict(),
+            'token': token,
+            'message': 'Registration successful'
+        }), 201
         
     except Exception as error:
         print(f"❌ Register error: {error}")
@@ -131,9 +167,17 @@ def login():
         if not user or not bcrypt.check_password_hash(user.password, password):
             return jsonify({'error': 'Invalid username or password'}), 401
         
-        session['user_id'] = user.id
+        # Create JWT token
+        token = jwt.encode({
+            'user_id': user.id,
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, app.config['SECRET_KEY'], algorithm='HS256')
         
-        return jsonify({'user': user.to_dict(), 'message': 'Login successful'}), 200
+        return jsonify({
+            'user': user.to_dict(),
+            'token': token,
+            'message': 'Login successful'
+        }), 200
         
     except Exception as error:
         print(f"❌ Login error: {error}")
@@ -141,30 +185,20 @@ def login():
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
-    session.pop('user_id', None)
+    # JWT is stateless, just return success
     return jsonify({'message': 'Logged out successfully'}), 200
 
 @app.route('/api/me', methods=['GET'])
-def get_current_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({'error': 'Not logged in'}), 401
-    
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-        
-    return jsonify({'user': user.to_dict()}), 200
+@token_required
+def get_current_user(current_user):
+    return jsonify({'user': current_user.to_dict()}), 200
 
 @app.route('/api/users', methods=['GET'])
-def get_all_users():
+@token_required
+def get_all_users(current_user):
     try:
-        user_id = session.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'Not logged in'}), 401
-        
         # Get all users except current user
-        users = User.query.filter(User.id != user_id).all()
+        users = User.query.filter(User.id != current_user.id).all()
         return jsonify({'users': [user.to_dict() for user in users]})
         
     except Exception as error:
@@ -174,12 +208,9 @@ def get_all_users():
 # ============ CHAT ROUTES ============
 
 @app.route('/api/chat', methods=['POST'])
-def chat():
+@token_required
+def chat(current_user):
     try:
-        user_id = session.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'Not logged in'}), 401
-        
         data = request.json
         system_prompt = data.get('systemPrompt', '')
         user_content = data.get('userContent', '')
@@ -204,19 +235,16 @@ def chat():
         return jsonify({"error": str(error)}), 500
 
 @app.route('/api/save-message', methods=['POST'])
-def save_message_endpoint():
+@token_required
+def save_message_endpoint(current_user):
     try:
-        user_id = session.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'Not logged in'}), 401
-        
         data = request.json
         conversation_id = data.get('conversation_id')
         sender = data.get('sender')
         text = data.get('text')
         tone = data.get('tone')
         
-        message = save_message(user_id, conversation_id, sender, text, tone)
+        message = save_message(current_user.id, conversation_id, sender, text, tone)
         return jsonify(message.to_dict())
         
     except Exception as error:
@@ -224,13 +252,10 @@ def save_message_endpoint():
         return jsonify({"error": str(error)}), 500
 
 @app.route('/api/load-messages/<conversation_id>', methods=['GET'])
-def load_messages_endpoint(conversation_id):
+@token_required
+def load_messages_endpoint(current_user, conversation_id):
     try:
-        user_id = session.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'Not logged in'}), 401
-        
-        messages = get_messages(user_id, conversation_id)
+        messages = get_messages(current_user.id, conversation_id)
         return jsonify({"messages": messages})
         
     except Exception as error:
@@ -247,7 +272,7 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🚀 SMARTCHAT BACKEND STARTING (with User Accounts!)")
+    print("🚀 SMARTCHAT BACKEND STARTING (with JWT!)")
     print("="*50)
     print("📍 Server at: http://localhost:3001")
     print("📝 API at: http://localhost:3001/api/chat")
