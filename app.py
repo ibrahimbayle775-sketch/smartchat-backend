@@ -51,6 +51,7 @@ class Message(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     conversation_id = db.Column(db.String(50), nullable=False)
     sender = db.Column(db.String(50), nullable=False)
+    receiver = db.Column(db.String(50), nullable=False)  # Added receiver field
     text = db.Column(db.Text, nullable=False)
     tone = db.Column(db.String(50))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
@@ -60,6 +61,7 @@ class Message(db.Model):
             'id': self.id,
             'conversation_id': self.conversation_id,
             'sender': self.sender,
+            'receiver': self.receiver,
             'text': self.text,
             'tone': self.tone,
             'timestamp': self.timestamp.strftime('%H:%M')
@@ -81,7 +83,6 @@ def token_required(f):
             return jsonify({'error': 'Token is missing'}), 401
         
         try:
-            # Remove 'Bearer ' prefix if present
             if token.startswith('Bearer '):
                 token = token.split(' ')[1]
             
@@ -100,11 +101,14 @@ def token_required(f):
 
 # ============ HELPER FUNCTIONS ============
 
-def save_message(user_id, conversation_id, sender, text, tone=None):
+def save_message(user_id, sender, receiver, text, tone=None):
+    # Use the receiver's ID as conversation_id
+    conversation_id = receiver
     message = Message(
         user_id=user_id,
         conversation_id=conversation_id,
         sender=sender,
+        receiver=receiver,
         text=text,
         tone=tone
     )
@@ -112,8 +116,12 @@ def save_message(user_id, conversation_id, sender, text, tone=None):
     db.session.commit()
     return message
 
-def get_messages(user_id, conversation_id):
-    messages = Message.query.filter_by(user_id=user_id, conversation_id=conversation_id).order_by(Message.timestamp).all()
+def get_messages(user_id, other_user_id):
+    # Get messages between current user and other user
+    messages = Message.query.filter(
+        ((Message.sender == user_id) & (Message.receiver == other_user_id)) |
+        ((Message.sender == other_user_id) & (Message.receiver == user_id))
+    ).order_by(Message.timestamp).all()
     return [msg.to_dict() for msg in messages]
 
 # ============ AUTH ROUTES ============
@@ -126,20 +134,17 @@ def register():
         email = data.get('email')
         password = data.get('password')
         
-        # Check if user exists
         if User.query.filter_by(username=username).first():
             return jsonify({'error': 'Username already exists'}), 400
         
         if User.query.filter_by(email=email).first():
             return jsonify({'error': 'Email already exists'}), 400
         
-        # Hash password and create user
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         new_user = User(username=username, email=email, password=hashed_password)
         db.session.add(new_user)
         db.session.commit()
         
-        # Create JWT token
         token = jwt.encode({
             'user_id': new_user.id,
             'exp': datetime.utcnow() + timedelta(days=7)
@@ -167,7 +172,6 @@ def login():
         if not user or not bcrypt.check_password_hash(user.password, password):
             return jsonify({'error': 'Invalid username or password'}), 401
         
-        # Create JWT token
         token = jwt.encode({
             'user_id': user.id,
             'exp': datetime.utcnow() + timedelta(days=7)
@@ -185,7 +189,6 @@ def login():
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
-    # JWT is stateless, just return success
     return jsonify({'message': 'Logged out successfully'}), 200
 
 @app.route('/api/me', methods=['GET'])
@@ -197,7 +200,6 @@ def get_current_user(current_user):
 @token_required
 def get_all_users(current_user):
     try:
-        # Get all users except current user
         users = User.query.filter(User.id != current_user.id).all()
         return jsonify({'users': [user.to_dict() for user in users]})
         
@@ -239,23 +241,34 @@ def chat(current_user):
 def save_message_endpoint(current_user):
     try:
         data = request.json
-        conversation_id = data.get('conversation_id')
         sender = data.get('sender')
+        receiver = data.get('receiver')
         text = data.get('text')
         tone = data.get('tone')
         
-        message = save_message(current_user.id, conversation_id, sender, text, tone)
+        print(f"💾 Saving message - Sender: {sender}, Receiver: {receiver}, Text: {text[:50]}...")
+        
+        # Save the message
+        message = save_message(current_user.id, sender, receiver, text, tone)
+        
+        print(f"✅ Message saved with ID: {message.id}")
+        
         return jsonify(message.to_dict())
         
     except Exception as error:
         print(f"❌ Error saving message: {error}")
         return jsonify({"error": str(error)}), 500
 
-@app.route('/api/load-messages/<conversation_id>', methods=['GET'])
+@app.route('/api/load-messages/<other_user_id>', methods=['GET'])
 @token_required
-def load_messages_endpoint(current_user, conversation_id):
+def load_messages_endpoint(current_user, other_user_id):
     try:
-        messages = get_messages(current_user.id, conversation_id)
+        print(f"📖 Loading messages between user {current_user.id} and {other_user_id}")
+        
+        messages = get_messages(current_user.id, other_user_id)
+        
+        print(f"✅ Found {len(messages)} messages")
+        
         return jsonify({"messages": messages})
         
     except Exception as error:
@@ -272,7 +285,7 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🚀 SMARTCHAT BACKEND STARTING (with JWT!)")
+    print("🚀 SMARTCHAT BACKEND STARTING (with Receiver Field!)")
     print("="*50)
     print("📍 Server at: http://localhost:3001")
     print("📝 API at: http://localhost:3001/api/chat")
