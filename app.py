@@ -11,11 +11,15 @@ app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messages.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# CORS - Allow your frontend domains
+# CORS - Allow all your frontend domains
 CORS(app, supports_credentials=True, origins=[
     'http://localhost:3000',
+    'http://localhost:3001',
+    'https://smart-chat-frontend-rho.vercel.app',
     'https://smart-chat-frontend-beta.vercel.app',
-    'https://smart-chat-frontend.vercel.app'
+    'https://smart-chat-frontend.vercel.app',
+    'https://smart-chat-frontend-xi.vercel.app',
+    'https://smart-chat-frontend-git-main.vercel.app'
 ])
 
 db = SQLAlchemy(app)
