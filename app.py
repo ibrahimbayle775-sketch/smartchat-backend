@@ -72,6 +72,35 @@ class Message(db.Model):
             'timestamp': self.timestamp.strftime('%H:%M')
         }
 
+class Group(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(200))
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'created_by': self.created_by,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M')
+        }
+
+class GroupMember(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'group_id': self.group_id,
+            'user_id': self.user_id,
+            'joined_at': self.joined_at.strftime('%Y-%m-%d %H:%M')
+        }
+
 # Create database tables
 with app.app_context():
     db.create_all()
@@ -278,6 +307,120 @@ def load_messages_endpoint(current_user, other_user_id):
         print(f"❌ Error loading messages: {error}")
         return jsonify({"error": str(error)}), 500
 
+# ============ GROUP ROUTES ============
+
+@app.route('/api/groups', methods=['GET'])
+@token_required
+def get_groups(current_user):
+    try:
+        # Get groups where user is a member
+        groups = Group.query.join(GroupMember).filter(GroupMember.user_id == current_user.id).all()
+        return jsonify({'groups': [group.to_dict() for group in groups]})
+    except Exception as error:
+        print(f"❌ Groups error: {error}")
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/groups', methods=['POST'])
+@token_required
+def create_group(current_user):
+    try:
+        data = request.json
+        name = data.get('name')
+        description = data.get('description', '')
+        
+        if not name:
+            return jsonify({'error': 'Group name is required'}), 400
+        
+        # Create group
+        new_group = Group(name=name, description=description, created_by=current_user.id)
+        db.session.add(new_group)
+        db.session.flush()
+        
+        # Add creator as member
+        member = GroupMember(group_id=new_group.id, user_id=current_user.id)
+        db.session.add(member)
+        db.session.commit()
+        
+        return jsonify({'group': new_group.to_dict(), 'message': 'Group created successfully'}), 201
+        
+    except Exception as error:
+        print(f"❌ Create group error: {error}")
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/groups/<int:group_id>/join', methods=['POST'])
+@token_required
+def join_group(current_user, group_id):
+    try:
+        # Check if group exists
+        group = Group.query.get(group_id)
+        if not group:
+            return jsonify({'error': 'Group not found'}), 404
+        
+        # Check if already a member
+        existing = GroupMember.query.filter_by(group_id=group_id, user_id=current_user.id).first()
+        if existing:
+            return jsonify({'error': 'Already a member'}), 400
+        
+        # Add member
+        member = GroupMember(group_id=group_id, user_id=current_user.id)
+        db.session.add(member)
+        db.session.commit()
+        
+        return jsonify({'message': 'Joined group successfully'}), 200
+        
+    except Exception as error:
+        print(f"❌ Join group error: {error}")
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/groups/<int:group_id>/messages', methods=['GET'])
+@token_required
+def get_group_messages(current_user, group_id):
+    try:
+        # Check if user is a member
+        member = GroupMember.query.filter_by(group_id=group_id, user_id=current_user.id).first()
+        if not member:
+            return jsonify({'error': 'Not a member of this group'}), 403
+        
+        # Get messages for this group
+        messages = Message.query.filter_by(conversation_id=f"group_{group_id}").order_by(Message.timestamp).all()
+        return jsonify({'messages': [msg.to_dict() for msg in messages]})
+        
+    except Exception as error:
+        print(f"❌ Get group messages error: {error}")
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/groups/<int:group_id>/messages', methods=['POST'])
+@token_required
+def send_group_message(current_user, group_id):
+    try:
+        # Check if user is a member
+        member = GroupMember.query.filter_by(group_id=group_id, user_id=current_user.id).first()
+        if not member:
+            return jsonify({'error': 'Not a member of this group'}), 403
+        
+        data = request.json
+        text = data.get('text')
+        
+        if not text:
+            return jsonify({'error': 'Message text is required'}), 400
+        
+        # Save group message
+        message = Message(
+            user_id=current_user.id,
+            conversation_id=f"group_{group_id}",
+            sender=str(current_user.id),
+            receiver=f"group_{group_id}",
+            text=text
+        )
+        db.session.add(message)
+        db.session.commit()
+        
+        return jsonify(message.to_dict()), 201
+        
+    except Exception as error:
+        print(f"❌ Send group message error: {error}")
+        return jsonify({'error': str(error)}), 500
+
 # ============ HEALTH CHECK ============
 
 @app.route('/api/health', methods=['GET'])
@@ -288,13 +431,14 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🚀 SMARTCHAT BACKEND STARTING (with Claude AI!)")
+    print("🚀 SMARTCHAT BACKEND STARTING (with Groups!)")
     print("="*50)
     print("📍 Server at: http://localhost:3001")
     print("📝 Chat API: http://localhost:3001/api/chat")
     print("💚 Health: http://localhost:3001/api/health")
     print("👤 Auth: /api/register, /api/login, /api/logout")
     print("👥 Users: /api/users")
+    print("👥 Groups: /api/groups")
     print("💾 Database: messages.db")
     print("="*50)
     print("\n✨ Backend is ready!\n")
