@@ -278,14 +278,32 @@ def save_message_endpoint(current_user):
         receiver = data.get('receiver')
         text = data.get('text')
         tone = data.get('tone')
+        msg_type = data.get('type', 'text')
+        file_url = data.get('file_url', '')
+        filename = data.get('filename', '')
         
-        print(f"💾 Saving message - Sender: {sender}, Receiver: {receiver}, Text: {text[:50]}...")
+        print(f"💾 Saving {msg_type} message - Sender: {sender}, Receiver: {receiver}")
+        
+        # For images and files, store the URL in the text field with special formatting
+        if msg_type == 'image':
+            text = f"[IMAGE:{file_url}]"
+        elif msg_type == 'file':
+            text = f"[FILE:{filename}:{file_url}]"
         
         message = save_message(current_user.id, sender, receiver, text, tone)
         
-        print(f"✅ Message saved with ID: {message.id}")
+        # Add type info to response
+        msg_dict = message.to_dict()
+        msg_dict['type'] = msg_type
+        if msg_type == 'image':
+            msg_dict['src'] = file_url
+        elif msg_type == 'file':
+            msg_dict['filename'] = filename
+            msg_dict['url'] = file_url
         
-        return jsonify(message.to_dict())
+        print(f"✅ {msg_type} message saved with ID: {message.id}")
+        
+        return jsonify(msg_dict), 200
         
     except Exception as error:
         print(f"❌ Error saving message: {error}")
@@ -492,7 +510,7 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🚀 SMARTCHAT BACKEND STARTING (with Groups & Members!)")
+    print("🚀 SMARTCHAT BACKEND STARTING (with Multimedia Support!)")
     print("="*50)
     print("📍 Server at: http://localhost:3001")
     print("📝 Chat API: http://localhost:3001/api/chat")
@@ -502,6 +520,7 @@ if __name__ == '__main__':
     print("👥 Groups: /api/groups")
     print("👥 Group Members: /api/groups/<id>/members")
     print("💬 Group Messages: /api/groups/<id>/messages")
+    print("🖼️ Multimedia: Images and files supported")
     print("💾 Database: messages.db")
     print("="*50)
     print("\n✨ Backend is ready!\n")
