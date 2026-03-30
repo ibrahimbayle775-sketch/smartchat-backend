@@ -51,7 +51,7 @@ class Message(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     conversation_id = db.Column(db.String(50), nullable=False)
     sender = db.Column(db.String(50), nullable=False)
-    receiver = db.Column(db.String(50), nullable=False)  # Added receiver field
+    receiver = db.Column(db.String(50), nullable=False)
     text = db.Column(db.Text, nullable=False)
     tone = db.Column(db.String(50))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
@@ -102,7 +102,6 @@ def token_required(f):
 # ============ HELPER FUNCTIONS ============
 
 def save_message(user_id, sender, receiver, text, tone=None):
-    # Use the receiver's ID as conversation_id
     conversation_id = receiver
     message = Message(
         user_id=user_id,
@@ -117,10 +116,9 @@ def save_message(user_id, sender, receiver, text, tone=None):
     return message
 
 def get_messages(user_id, other_user_id):
-    # Get messages between current user and other user
     messages = Message.query.filter(
-        ((Message.sender == user_id) & (Message.receiver == other_user_id)) |
-        ((Message.sender == other_user_id) & (Message.receiver == user_id))
+        ((Message.sender == str(user_id)) & (Message.receiver == str(other_user_id))) |
+        ((Message.sender == str(other_user_id)) & (Message.receiver == str(user_id)))
     ).order_by(Message.timestamp).all()
     return [msg.to_dict() for msg in messages]
 
@@ -219,6 +217,7 @@ def chat(current_user):
         max_tokens = data.get('maxTokens', 512)
         
         print(f"🤔 Thinking about: {user_content[:50]}...")
+        print(f"API Key exists: {bool(ANTHROPIC_API_KEY)}")
         
         response = client.messages.create(
             model="claude-3-sonnet-20241022",
@@ -248,7 +247,6 @@ def save_message_endpoint(current_user):
         
         print(f"💾 Saving message - Sender: {sender}, Receiver: {receiver}, Text: {text[:50]}...")
         
-        # Save the message
         message = save_message(current_user.id, sender, receiver, text, tone)
         
         print(f"✅ Message saved with ID: {message.id}")
@@ -285,10 +283,10 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🚀 SMARTCHAT BACKEND STARTING (with Receiver Field!)")
+    print("🚀 SMARTCHAT BACKEND STARTING (with Claude AI!)")
     print("="*50)
     print("📍 Server at: http://localhost:3001")
-    print("📝 API at: http://localhost:3001/api/chat")
+    print("📝 Chat API: http://localhost:3001/api/chat")
     print("💚 Health: http://localhost:3001/api/health")
     print("👤 Auth: /api/register, /api/login, /api/logout")
     print("👥 Users: /api/users")
