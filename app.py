@@ -372,6 +372,60 @@ def join_group(current_user, group_id):
         print(f"❌ Join group error: {error}")
         return jsonify({'error': str(error)}), 500
 
+@app.route('/api/groups/<int:group_id>/members', methods=['GET'])
+@token_required
+def get_group_members(current_user, group_id):
+    try:
+        # Check if user is a member
+        member = GroupMember.query.filter_by(group_id=group_id, user_id=current_user.id).first()
+        if not member:
+            return jsonify({'error': 'Not a member of this group'}), 403
+        
+        # Get all members
+        members = db.session.query(User).join(GroupMember).filter(GroupMember.group_id == group_id).all()
+        return jsonify({'members': [user.to_dict() for user in members]})
+        
+    except Exception as error:
+        print(f"❌ Get members error: {error}")
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/groups/<int:group_id>/members', methods=['POST'])
+@token_required
+def add_group_member(current_user, group_id):
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        # Check if group exists
+        group = Group.query.get(group_id)
+        if not group:
+            return jsonify({'error': 'Group not found'}), 404
+        
+        # Check if current user is the creator or an admin (for now, only creator can add)
+        if group.created_by != current_user.id:
+            return jsonify({'error': 'Only group creator can add members'}), 403
+        
+        # Check if user exists
+        user_to_add = User.query.get(user_id)
+        if not user_to_add:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Check if already a member
+        existing = GroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+        if existing:
+            return jsonify({'error': 'User is already a member'}), 400
+        
+        # Add member
+        member = GroupMember(group_id=group_id, user_id=user_id)
+        db.session.add(member)
+        db.session.commit()
+        
+        return jsonify({'message': f'{user_to_add.username} added to group successfully'}), 200
+        
+    except Exception as error:
+        print(f"❌ Add member error: {error}")
+        return jsonify({'error': str(error)}), 500
+
 @app.route('/api/groups/<int:group_id>/messages', methods=['GET'])
 @token_required
 def get_group_messages(current_user, group_id):
@@ -431,7 +485,7 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🚀 SMARTCHAT BACKEND STARTING (with Groups!)")
+    print("🚀 SMARTCHAT BACKEND STARTING (with Groups & Members!)")
     print("="*50)
     print("📍 Server at: http://localhost:3001")
     print("📝 Chat API: http://localhost:3001/api/chat")
@@ -439,6 +493,7 @@ if __name__ == '__main__':
     print("👤 Auth: /api/register, /api/login, /api/logout")
     print("👥 Users: /api/users")
     print("👥 Groups: /api/groups")
+    print("👥 Group Members: /api/groups/<id>/members")
     print("💾 Database: messages.db")
     print("="*50)
     print("\n✨ Backend is ready!\n")
