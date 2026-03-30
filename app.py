@@ -401,7 +401,7 @@ def add_group_member(current_user, group_id):
         if not group:
             return jsonify({'error': 'Group not found'}), 404
         
-        # Check if current user is the creator or an admin (for now, only creator can add)
+        # Check if current user is the creator
         if group.created_by != current_user.id:
             return jsonify({'error': 'Only group creator can add members'}), 403
         
@@ -433,10 +433,12 @@ def get_group_messages(current_user, group_id):
         # Check if user is a member
         member = GroupMember.query.filter_by(group_id=group_id, user_id=current_user.id).first()
         if not member:
+            print(f"❌ User {current_user.id} is not a member of group {group_id}")
             return jsonify({'error': 'Not a member of this group'}), 403
         
         # Get messages for this group
         messages = Message.query.filter_by(conversation_id=f"group_{group_id}").order_by(Message.timestamp).all()
+        print(f"📖 Found {len(messages)} messages for group {group_id}")
         return jsonify({'messages': [msg.to_dict() for msg in messages]})
         
     except Exception as error:
@@ -450,6 +452,7 @@ def send_group_message(current_user, group_id):
         # Check if user is a member
         member = GroupMember.query.filter_by(group_id=group_id, user_id=current_user.id).first()
         if not member:
+            print(f"❌ User {current_user.id} is not a member of group {group_id}")
             return jsonify({'error': 'Not a member of this group'}), 403
         
         data = request.json
@@ -457,6 +460,8 @@ def send_group_message(current_user, group_id):
         
         if not text:
             return jsonify({'error': 'Message text is required'}), 400
+        
+        print(f"💾 Saving group message - Group: {group_id}, User: {current_user.username}, Text: {text[:50]}...")
         
         # Save group message
         message = Message(
@@ -468,6 +473,8 @@ def send_group_message(current_user, group_id):
         )
         db.session.add(message)
         db.session.commit()
+        
+        print(f"✅ Group message saved with ID: {message.id}")
         
         return jsonify(message.to_dict()), 201
         
@@ -494,6 +501,7 @@ if __name__ == '__main__':
     print("👥 Users: /api/users")
     print("👥 Groups: /api/groups")
     print("👥 Group Members: /api/groups/<id>/members")
+    print("💬 Group Messages: /api/groups/<id>/messages")
     print("💾 Database: messages.db")
     print("="*50)
     print("\n✨ Backend is ready!\n")
